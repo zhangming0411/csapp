@@ -167,15 +167,39 @@ void eval(char *cmdline)
 {
     char *argv[MAXARGS]; /* Argument list execve() */
     char buf[MAXLINE];   /* Holds modified command line */
-    int bg;              /* Should the job run in bg or fg? */
+    int bg, state;              /* Should the job run in bg or fg? */
     pid_t pid;           /* Process id */
+    sigset_t mask_all, prev_all, mask_one, prev_one;
     
     strcpy(buf, cmdline);
     bg = parseline(buf, argv); 
+    state = (bg)? BG: FG;
     if (argv[0] == NULL)  
 	return;   /* Ignore empty lines */
+    // 设置 mask
+    sigemptyset(&mask_one);
+    sigaddset(&mask_one, SIGCHLD);
+    sigfillset(&mask_all);
     if (!builtin_cmd(argv)) {
+        sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
+        if ((pid = fork()) == 0) {
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);
+            if (execve(argv[0], argv, environ) < 0) {
+                printf("%s: Command not found.\n", argv[0]);
+                exit(0);
+            }
+        }
+        // 添加任务
+        sigprocmask(SIG_BLOCK, &mask_all, NULL);
+        addjob(jobs, pid, state, cmdline);
+        sigprocmask(SIG_SETMASK, &prev_one, NULL);
 
+        if (!bg) {
+            int status;
+            if (waitpid(pid, &status, 0) < 0)
+                unix_error("waitfg: waitpid error");
+        } else {
+        }
     }
     return;
 }
@@ -243,8 +267,10 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv) 
 {
-    if (!strcmp(argv[0], "quit"))
+    if (!strcmp(argv[0], "quit")) {
+        // kill(0, SIGQUIT);
         exit(0);
+    }
     return 0;     /* not a builtin command */
 }
 
