@@ -41,7 +41,7 @@ char prompt[] = "tsh> ";    /* command line prompt (DO NOT CHANGE) */
 int verbose = 0;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
 char sbuf[MAXLINE];         /* for composing sprintf messages */
-volatile sig_atomic_t pid_settle;  // 设置好的的pid
+// volatile sig_atomic_t pid_settle;  // 设置好的的pid
 volatile sig_atomic_t pid_fg;  // 前台pid
 
 struct job_t {              /* The job struct */
@@ -193,7 +193,6 @@ void eval(char *cmdline)
             }
         }
         // 添加任务
-        pid_settle = 0;
         int addsuccess = 0;
         sigprocmask(SIG_BLOCK, &mask_all, NULL);
         addsuccess = addjob(jobs, pid, state, cmdline);
@@ -201,7 +200,7 @@ void eval(char *cmdline)
 
         if (!bg) {
             pid_fg = pid;  // settle fg pid
-            while (pid_settle != pid)
+            while (pid_fg)
                 sigsuspend(&prev_one);            
         } else {
             if (addsuccess) {
@@ -333,13 +332,13 @@ void sigchld_handler(int sig)
             psignal(WTERMSIG(status), sigbuf);
         }
         deletejob(jobs, pid);
-        pid_settle = pid;
+        if (pid_fg == pid)
+            pid_fg = 0;  // 取消pid_fg设置
         sigprocmask(SIG_SETMASK, &prev_all, NULL);
     }
     if (errno != ECHILD && errno != EINTR) {
         app_error("waitpid error");
     }
-
     errno = olderrno;
 }
 
@@ -350,9 +349,11 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    int olderrno = errno;
     if (pid_fg) {
         kill(-pid_fg, SIGINT);
     }
+    errno = olderrno;
     return;
 }
 
@@ -363,7 +364,16 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
-    return;
+    struct job_t *jobp;
+    int olderrno = errno;
+    printf("got ctrl+z, now pid_fg is %d\n", pid_fg);
+    if (pid_fg) {
+        jobp = getjobpid(jobs, pid_fg);
+        jobp->state = ST;
+        kill(-pid_fg, SIGTSTP);
+        pid_fg = 0;
+    }
+    errno = olderrno;
 }
 
 /*********************
