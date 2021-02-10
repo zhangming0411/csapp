@@ -41,6 +41,7 @@ char prompt[] = "tsh> ";    /* command line prompt (DO NOT CHANGE) */
 int verbose = 0;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
 char sbuf[MAXLINE];         /* for composing sprintf messages */
+volatile sig_atomic_t pid_settle;  // 设置好的的pid
 
 struct job_t {              /* The job struct */
     pid_t pid;              /* job PID */
@@ -169,7 +170,7 @@ void eval(char *cmdline)
     char buf[MAXLINE];   /* Holds modified command line */
     int bg, state;              /* Should the job run in bg or fg? */
     pid_t pid;           /* Process id */
-    sigset_t mask_all, prev_all, mask_one, prev_one;
+    sigset_t mask_all, mask_one, prev_one;
     
     strcpy(buf, cmdline);
     bg = parseline(buf, argv); 
@@ -190,15 +191,20 @@ void eval(char *cmdline)
             }
         }
         // 添加任务
+        pid_settle = 0;
+        int addsuccess = 0;
         sigprocmask(SIG_BLOCK, &mask_all, NULL);
-        addjob(jobs, pid, state, cmdline);
+        addsuccess = addjob(jobs, pid, state, cmdline);
         sigprocmask(SIG_SETMASK, &prev_one, NULL);
 
         if (!bg) {
-            int status;
-            if (waitpid(pid, &status, 0) < 0)
-                unix_error("waitfg: waitpid error");
+            while (pid_settle != pid)
+                sigsuspend(&prev_one);            
         } else {
+            if (addsuccess) {
+            struct job_t *jobp = getjobpid(jobs, pid);
+            printf("[%d] (%d) %s", jobp->jid, jobp->pid, jobp->cmdline);
+        }
         }
     }
     return;
@@ -303,7 +309,31 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
-    return;
+    int olderrno = errno;
+    sigset_t mask_all, prev_all;
+    pid_t pid;
+    int status;
+    struct job_t *jobp;  //当前job
+
+    sigfillset(&mask_all);
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0)
+    {
+        sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+        jobp = getjobpid(jobs, pid);
+        // if (WIFEXITED(status))
+        //     printf("[%d] (%d) %s", jobp->jid, jobp->pid, jobp->cmdline);
+        if (WIFSIGNALED(status)) {
+            char sigbuf[MAXLINE];
+            sprintf(sigbuf, "[%d] (%d) %s terminated by signal %d", jobp->jid, jobp->pid, jobp->cmdline, WTERMSIG(status));
+            psignal(WTERMSIG(status), sigbuf);
+        }
+        deletejob(jobs, pid);
+        pid_settle = pid;
+        sigprocmask(SIG_SETMASK, &prev_all, NULL);
+    }
+    if (errno != ECHILD)
+        app_error("waitpid error");
+    errno = olderrno;
 }
 
 /* 
