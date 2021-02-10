@@ -273,9 +273,11 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv) 
 {
-    if (!strcmp(argv[0], "quit")) {
-        // kill(0, SIGQUIT);
+    if (!strcmp(argv[0], "quit")) 
         exit(0);
+    if (!strcmp(argv[0], "jobs")) {
+        listjobs(jobs);
+        return 1;
     }
     return 0;     /* not a builtin command */
 }
@@ -331,8 +333,11 @@ void sigchld_handler(int sig)
         pid_settle = pid;
         sigprocmask(SIG_SETMASK, &prev_all, NULL);
     }
-    if (errno != ECHILD)
+    if (errno != ECHILD && errno != EINTR) {
+        printf("error: %d\n", errno);
         app_error("waitpid error");
+    }
+
     errno = olderrno;
 }
 
