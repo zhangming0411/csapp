@@ -42,6 +42,7 @@ int verbose = 0;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
 char sbuf[MAXLINE];         /* for composing sprintf messages */
 volatile sig_atomic_t pid_settle;  // 设置好的的pid
+volatile sig_atomic_t pid_fg;  // 前台pid
 
 struct job_t {              /* The job struct */
     pid_t pid;              /* job PID */
@@ -185,6 +186,7 @@ void eval(char *cmdline)
         sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
         if ((pid = fork()) == 0) {
             sigprocmask(SIG_SETMASK, &prev_one, NULL);
+            setpgid(0, 0);  // as wish
             if (execve(argv[0], argv, environ) < 0) {
                 printf("%s: Command not found.\n", argv[0]);
                 exit(0);
@@ -198,6 +200,7 @@ void eval(char *cmdline)
         sigprocmask(SIG_SETMASK, &prev_one, NULL);
 
         if (!bg) {
+            pid_fg = pid;  // settle fg pid
             while (pid_settle != pid)
                 sigsuspend(&prev_one);            
         } else {
@@ -326,7 +329,7 @@ void sigchld_handler(int sig)
         //     printf("[%d] (%d) %s", jobp->jid, jobp->pid, jobp->cmdline);
         if (WIFSIGNALED(status)) {
             char sigbuf[MAXLINE];
-            sprintf(sigbuf, "[%d] (%d) %s terminated by signal %d", jobp->jid, jobp->pid, jobp->cmdline, WTERMSIG(status));
+            sprintf(sigbuf, "Job [%d] (%d) terminated by signal %d", jobp->jid, jobp->pid, WTERMSIG(status));
             psignal(WTERMSIG(status), sigbuf);
         }
         deletejob(jobs, pid);
@@ -334,7 +337,6 @@ void sigchld_handler(int sig)
         sigprocmask(SIG_SETMASK, &prev_all, NULL);
     }
     if (errno != ECHILD && errno != EINTR) {
-        printf("error: %d\n", errno);
         app_error("waitpid error");
     }
 
@@ -348,6 +350,9 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    if (pid_fg) {
+        kill(-pid_fg, SIGINT);
+    }
     return;
 }
 
