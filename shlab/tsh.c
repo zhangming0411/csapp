@@ -75,6 +75,7 @@ void initjobs(struct job_t *jobs);
 int maxjid(struct job_t *jobs); 
 int addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline);
 int deletejob(struct job_t *jobs, pid_t pid); 
+int updatejob(struct job_t *jobs, pid_t pid, int state);
 pid_t fgpid(struct job_t *jobs);
 struct job_t *getjobpid(struct job_t *jobs, pid_t pid);
 struct job_t *getjobjid(struct job_t *jobs, int jid); 
@@ -324,14 +325,19 @@ void sigchld_handler(int sig)
     {
         sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
         jobp = getjobpid(jobs, pid);
-        // if (WIFEXITED(status))
-        //     printf("[%d] (%d) %s", jobp->jid, jobp->pid, jobp->cmdline);
+        if (WIFEXITED(status)) {
+            deletejob(jobs, pid);
+            // printf("[%d] (%d) %s", jobp->jid, jobp->pid, jobp->cmdline);
+        }
         if (WIFSIGNALED(status)) {
             char sigbuf[MAXLINE];
             sprintf(sigbuf, "Job [%d] (%d) terminated by signal %d", jobp->jid, jobp->pid, WTERMSIG(status));
             psignal(WTERMSIG(status), sigbuf);
+            deletejob(jobs, pid);
         }
-        deletejob(jobs, pid);
+        if (WIFSTOPPED(status)) {
+            printf("Job [%d] (%d) stopped by signal %d\n", jobp->jid, jobp->pid, WSTOPSIG(status));
+        }
         if (pid_fg == pid)
             pid_fg = 0;  // 取消pid_fg设置
         sigprocmask(SIG_SETMASK, &prev_all, NULL);
@@ -364,14 +370,12 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
-    struct job_t *jobp;
     int olderrno = errno;
-    printf("got ctrl+z, now pid_fg is %d\n", pid_fg);
+    // printf("got ctrl+z, now pid_fg is %d\n", pid_fg);
     if (pid_fg) {
-        jobp = getjobpid(jobs, pid_fg);
-        jobp->state = ST;
         kill(-pid_fg, SIGTSTP);
-        pid_fg = 0;
+        updatejob(jobs, pid_fg, ST);
+        // pid_fg = 0;
     }
     errno = olderrno;
 }
@@ -452,6 +456,21 @@ int deletejob(struct job_t *jobs, pid_t pid)
 	    return 1;
 	}
     }
+    return 0;
+}
+
+/* updatejob - update the state of a job with PID=pid */
+int updatejob(struct job_t *jobs, pid_t pid, int state)
+{
+    int i;
+
+    for (i = 0; i < MAXJOBS; i++) {
+	if (jobs[i].pid == pid) {
+	    jobs[i].state = state;
+	    return 1;
+	}
+    }
+    printf("Job %d not found\n", pid);
     return 0;
 }
 
