@@ -282,6 +282,10 @@ int builtin_cmd(char **argv)
         listjobs(jobs);
         return 1;
     }
+    if (!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")) {
+        do_bgfg(argv);
+        return 1;
+    }
     return 0;     /* not a builtin command */
 }
 
@@ -290,6 +294,26 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv) 
 {
+    int jid;
+    pid_t pid;
+    if (*argv[1] == '%') {
+        jid = atoi(argv[1]+1);
+    } else {
+        jid = pid2jid(atoi(argv[1]));
+    }
+    struct job_t *jobp = getjobjid(jobs, jid);
+    if (!jobp) {
+        printf("[%d] No such process\n", jid);
+        return;
+    }
+    pid = jobp->pid;
+    if (!strcmp(argv[0], "bg")) {
+        if (jobp->state == ST) {
+            updatejob(jobs, pid, BG);
+            printf("[%d] (%d) %s", jobp->jid, jobp->pid, jobp->cmdline);
+            kill(-pid, SIGCONT);
+        }
+    }
     return;
 }
 
