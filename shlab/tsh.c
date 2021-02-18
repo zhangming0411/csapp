@@ -294,16 +294,40 @@ int builtin_cmd(char **argv)
  */
 void do_bgfg(char **argv) 
 {
-    int jid;
+    int jid, i;
     pid_t pid;
-    if (*argv[1] == '%') {
-        jid = atoi(argv[1]+1);
+    char *argp;
+    int is_jid = 0;
+    // 合法性测试
+    for (i = 0; argv[i]; i++)
+        ;
+    if (i == 1) {
+        printf("%s command requires PID or %%jobid argument\n", argv[0]);
+        return;
+    }
+    argp = argv[1];  // PID or %jobid
+    i = 0;
+    if (argp[0] == '%') {
+        is_jid = 1;
+        i++;
+    }
+    for ( ; argp[i]; i++) {
+        if (argp[i] <= '9' && argp[i] >= '0')
+            continue;
+        printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+        return;
+    }
+    if (is_jid) {
+        jid = atoi(argp+1);
     } else {
-        jid = pid2jid(atoi(argv[1]));
+        jid = pid2jid(atoi(argp));
     }
     struct job_t *jobp = getjobjid(jobs, jid);
     if (!jobp) {
-        printf("[%d] No such process\n", jid);
+        if (!is_jid)
+            printf("(%s) No such process\n", argv[1]);
+        else
+            printf("[%s] No such job\n", argv[1]);
         return;
     }
     pid = jobp->pid;
