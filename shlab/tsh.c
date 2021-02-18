@@ -314,6 +314,18 @@ void do_bgfg(char **argv)
             kill(-pid, SIGCONT);
         }
     }
+    if (!strcmp(argv[0], "fg")) {
+        if (jobp->state == ST) {
+            updatejob(jobs, pid, FG);
+            printf("[%d] (%d) %s", jobp->jid, jobp->pid, jobp->cmdline);
+            kill(-pid, SIGCONT);
+        } else if (jobp->state == BG) {
+            updatejob(jobs, pid, FG);
+            printf("[%d] (%d) %s", jobp->jid, jobp->pid, jobp->cmdline);
+        }
+        pid_fg = pid;
+        waitfg(pid);
+    }
     return;
 }
 
@@ -322,6 +334,9 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    while (pid == pid_fg) {
+        sleep(1);
+    }
     return;
 }
 
